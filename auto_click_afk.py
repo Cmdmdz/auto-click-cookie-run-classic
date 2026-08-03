@@ -55,7 +55,9 @@ class Config:
 
     # สเกลของ template ที่จะลองจับคู่ (1.0 = ขนาดเดิม) ใช้แก้ปัญหาสแกนไม่เจอตอนสลับจอ/ความละเอียด
     # ที่ทำให้ปุ่มในเกมมีขนาดพิกเซลต่างจากตอนแคป template ไว้
-    # ตอนนี้เลือกจอผ่าน screen_profile อยู่แล้ว เลยไม่ต้องเผื่อสเกลกว้างมาก -> ช่วงแคบลงเพื่อความเร็ว
+    # ตอนนี้แต่ละ step มีรูปหลายไฟล์อยู่แล้ว (ครอบคลุมขนาด/สไตล์ต่างกันในตัวเอง) เลยไม่ต้องเผื่อ
+    # สเกลกว้างซ้ำซ้อนอีก -> แคบลงเหลือ 3 สเกล ลดงานคำนวณต่อเฟรมลงมาก (เดิม 9 สเกล x จำนวนรูป/step
+    # เช่น step5 มี 5 รูป x 9 สเกล = 45 ครั้ง/รอบ ตอนนี้เหลือ 5 รูป x 3 สเกล = 15 ครั้ง/รอบ)
     match_scales: tuple = (0.95, 1.0, 1.05)
 
     # หน่วงเวลาระหว่างรอบสแกนหน้าจอ (วินาที)
@@ -81,47 +83,51 @@ class Config:
     # ความโค้งของเส้นทางเมาส์ เทียบกับระยะทางตรง (0 = เส้นตรง, ยิ่งมากยิ่งโค้ง)
     move_curviness: float = 0.35
 
-    # เลือกว่าจะสแกนโดยใช้ template ชุดของจอไหน: "desktop" หรือ "laptop"
-    # เดิมสคริปต์จับคู่ template ทั้งสองชุดพร้อมกันทุกรอบ (จอคอม + notebook) ทำให้สแกนช้าเกินไป
-    # ตอนนี้เลือกโปรไฟล์ล่วงหน้าก่อนรัน สคริปต์จะจับคู่แค่ชุดที่เลือกเท่านั้น เร็วขึ้นเกือบ 2 เท่า
-    screen_profile: str = "desktop"  # "desktop" หรือ "laptop"
-
-    # ชุด template (ไม่ต้องใส่ .png) สำหรับตอนเล่นบนจอคอม เรียงตามลำดับความสำคัญ
-    # ปุ่มที่อยู่ก่อนในลิสต์จะถูกคลิกก่อนถ้าเจอพร้อมกันหลายปุ่มในรอบเดียวกัน
-    priority_order_desktop: list = field(default_factory=lambda: [
-        "confirm_reconnect",
-        "open_all",
-        "confirm",
-        "ok",
-        "play_1",
-        "play_2",
+    # ----- STEP FLOW (แบบแยกโฟลเดอร์) -----
+    # เอาการแบ่ง desktop/laptop ออกแล้ว ตอนนี้ใช้ template ชุดเดียวรวมกัน ไม่ต้องเลือกโปรไฟล์จอ
+    # (match_scales ด้านบนเผื่อช่วงกว้างขึ้นเพื่อรองรับขนาดปุ่มที่ต่างกันในแต่ละจอ/ความละเอียดแทน)
+    #
+    # แต่ละ step มีโฟลเดอร์ของตัวเองอยู่ใต้ templates/<ชื่อโฟลเดอร์ step>/
+    # สคริปต์จะโหลดรูปทุกไฟล์ในโฟลเดอร์นั้นมาเป็น "ตัวเลือก" ของ step นั้น (จะลองจับคู่ทีละรูป
+    # จนกว่าจะเจอ) อยากเพิ่ม/ลบรูปของ step ไหน แค่ใส่/ลบไฟล์ในโฟลเดอร์นั้นได้เลย ไม่ต้องแก้โค้ด
+    # โครงสร้างตัวอย่าง:
+    #   templates/step1_play/
+    #   templates/step2_play/
+    #   templates/step3_ok/
+    #   templates/step4_open_all/
+    #   templates/step5_confirm/
+    #   templates/override/  (ป๊อปอัพที่แทรกได้ทุกเมื่อ ใส่รูปที่นี่ถ้ามี)
+    step_folder_names: list = field(default_factory=lambda: [
+        "step1_play",       # step 1: กดปุ่ม Play!
+        "step2_play",       # step 2: กดปุ่ม Play! อีกครั้ง (หน้าตาอาจคล้าย step 1)
+        "step3_ok",         # step 3: กดปุ่ม OK
+        "step4_open_all",   # step 4: กดปุ่ม Open all
+        "step5_confirm",    # step 5: กดปุ่ม Confirm
     ])
 
-    # ชุด template สำหรับตอนเล่นบนจอ notebook (แคปรูปจากจอ notebook แยกไว้ต่างหาก)
-    priority_order_laptop: list = field(default_factory=lambda: [
-        "confirm_reconnect",
-        "open_all_laptop",
-        "confirm_laptop",
-        "ok_laptop",
-        "play_1_laptop",
-        "play_2_laptop",
-    ])
+    # ชื่อโฟลเดอร์สำหรับปุ่ม/ป๊อปอัพที่โผล่มาแทรกได้ทุกเมื่อไม่ว่าจะอยู่ step ไหน เช็คก่อนทุกรอบสแกน
+    # ถ้าเจอจะคลิกทันทีโดยไม่กระทบ step ปัจจุบัน (ไม่ขยับไป step ถัดไป) ปล่อยว่างไว้ได้ถ้ายังไม่ใช้
+    override_folder_name: str = "override"
+
+    # จำนวนรอบสูงสุดที่จะรอปุ่มของ step ปัจจุบันก่อนข้ามไป step ถัดไป
+    # ตั้งเป็น 0 (หรือค่าติดลบ) = รอไปเรื่อยๆ ไม่มีวันข้าม step จนกว่าจะเจอปุ่มจริง (ไม่ข้าม process เด็ดขาด)
+    max_step_retries: int = 0
 
 
 CONFIG = Config()
 
 # ============================== CORE LOGIC ==============================
 
-def load_templates(templates_dir: str) -> dict:
-    """โหลดรูปภาพทุกไฟล์ในโฟลเดอร์ templates/ เก็บเป็น dict {ชื่อไฟล์: ndarray}"""
+def load_folder_templates(folder_path: str) -> dict:
+    """โหลดรูปภาพทุกไฟล์ (ไม่ลงลึกโฟลเดอร์ย่อย) ในโฟลเดอร์ที่ระบุ เก็บเป็น dict {ชื่อไฟล์: ndarray}
+    ใช้กับโฟลเดอร์ของแต่ละ step หรือโฟลเดอร์ override คืน dict ว่างถ้าไม่พบโฟลเดอร์หรือไม่มีรูป (ไม่ error)"""
     templates = {}
-    if not os.path.isdir(templates_dir):
-        print(f"[!] ไม่พบโฟลเดอร์ '{templates_dir}' กรุณาสร้างและใส่รูปปุ่มก่อน")
-        sys.exit(1)
+    if not os.path.isdir(folder_path):
+        return templates
 
-    for fname in os.listdir(templates_dir):
+    for fname in sorted(os.listdir(folder_path)):
         if fname.lower().endswith((".png", ".jpg", ".jpeg")):
-            path = os.path.join(templates_dir, fname)
+            path = os.path.join(folder_path, fname)
             img = cv2.imread(path, cv2.IMREAD_COLOR)
             if img is None:
                 print(f"[!] โหลดรูปไม่ได้: {path}")
@@ -129,11 +135,6 @@ def load_templates(templates_dir: str) -> dict:
             name = os.path.splitext(fname)[0]
             templates[name] = img
 
-    if not templates:
-        print(f"[!] โฟลเดอร์ '{templates_dir}' ว่างเปล่า ใส่รูปปุ่ม (.png) อย่างน้อย 1 รูปก่อนรัน")
-        sys.exit(1)
-
-    print(f"[i] โหลด template ทั้งหมด {len(templates)} รูป: {list(templates.keys())}")
     return templates
 
 
@@ -239,26 +240,53 @@ def click_at(x: int, y: int, w: int = 0, h: int = 0, region_offset=(0, 0),
         print(f"    -> คลิกที่ ({abs_x}, {abs_y})")
 
 
+def try_click_any(frame, templates_dict, config, region_offset):
+    """ลองจับคู่ template ทีละรูปใน templates_dict ({ชื่อไฟล์: ndarray}) กับ frame
+    ถ้าเจออันไหนก่อนให้คลิกแล้วคืน True ทันที"""
+    for name, img in templates_dict.items():
+        match = find_best_match(frame, img, config.match_confidence, config.match_scales)
+        if match:
+            x, y, w, h, score = match
+            center_x, center_y = x + w // 2, y + h // 2
+            print(f"[{time.strftime('%H:%M:%S')}] เจอ '{name}' (score={score:.2f}) ที่ ({center_x},{center_y})")
+            click_at(
+                center_x, center_y, w, h,
+                region_offset=region_offset,
+                dry_run=config.dry_run,
+                jitter_ratio=config.click_jitter_ratio,
+                move_steps_range=config.move_steps_range,
+                move_curviness=config.move_curviness,
+            )
+            return True
+    return False
+
+
 def run(config: Config):
-    templates = load_templates(config.templates_dir)
+    base_dir = config.templates_dir
 
-    profile = config.screen_profile.strip().lower()
-    if profile == "laptop":
-        selected_order = config.priority_order_laptop
-    else:
-        selected_order = config.priority_order_desktop
+    if not os.path.isdir(base_dir):
+        print(f"[!] ไม่พบโฟลเดอร์ '{base_dir}' กรุณาสร้างโฟลเดอร์ตามโครงสร้าง step ก่อนรัน (ดู README.md)")
+        sys.exit(1)
 
-    # สแกนเฉพาะ template ของโปรไฟล์ที่เลือกเท่านั้น (ไม่ผสมชุดจอคอม/notebook พร้อมกัน) เพื่อความเร็ว
-    ordered_names = [n for n in selected_order if n in templates]
-    missing = [n for n in selected_order if n not in templates]
-    if missing:
-        print(f"[!] โปรไฟล์ '{profile}' ขาด template: {missing} (ข้ามไป ไม่กระทบปุ่มอื่น)")
+    # โหลดรูปของแต่ละ step จากโฟลเดอร์ย่อยของมันเอง: templates/<step_folder_name>/*.png
+    step_flow = []  # list ของ (ชื่อโฟลเดอร์, {ชื่อไฟล์: ndarray})
+    for folder_name in config.step_folder_names:
+        folder_path = os.path.join(base_dir, folder_name)
+        imgs = load_folder_templates(folder_path)
+        step_flow.append((folder_name, imgs))
+        if not imgs:
+            print(f"[!] โฟลเดอร์ '{folder_path}' ไม่มีรูป หรือไม่พบโฟลเดอร์ (step นี้จะรอไปเรื่อยๆ โดยไม่มีวันเจอ)")
+
+    override_dict = load_folder_templates(os.path.join(base_dir, config.override_folder_name))
 
     region_offset = (config.region[0], config.region[1]) if config.region else (0, 0)
 
     print("=" * 60)
-    print("Cookie Run Classic - Auto Click AFK")
-    print(f"โปรไฟล์จอ: {profile}  |  จำนวน template ที่ใช้สแกน: {len(ordered_names)} ({ordered_names})")
+    print("Cookie Run Classic - Auto Click AFK (โหมด Step Flow, แยกโฟลเดอร์)")
+    print(f"base_dir: {base_dir}  |  จำนวน step: {len(step_flow)}")
+    for i, (folder_name, imgs) in enumerate(step_flow, start=1):
+        print(f"   Step {i} [{folder_name}]: {list(imgs.keys())}")
+    print(f"Override [{config.override_folder_name}] (เช็คทุกรอบ): {list(override_dict.keys())}")
     print(f"โหมด: {'DRY RUN (ไม่คลิกจริง)' if config.dry_run else 'LIVE (คลิกจริง!)'}")
     print("กด Ctrl+C เพื่อหยุด")
     print("=" * 60)
@@ -267,31 +295,37 @@ def run(config: Config):
         print("[!] เริ่มคลิกจริงใน 5 วินาที... สลับไปที่หน้าต่างเกมตอนนี้!")
         time.sleep(5)
 
+    current_step = 0
+    retry_count = 0
+    total_steps = len(step_flow)
+
     try:
         while True:
             frame = screenshot_bgr(config.region)
-            clicked_this_round = False
 
-            for name in ordered_names:
-                match = find_best_match(frame, templates[name], config.match_confidence, config.match_scales)
-                if match:
-                    x, y, w, h, score = match
-                    center_x, center_y = x + w // 2, y + h // 2
-                    print(f"[{time.strftime('%H:%M:%S')}] เจอ '{name}' (score={score:.2f}) ที่ ({center_x},{center_y})")
-                    click_at(
-                        center_x, center_y, w, h,
-                        region_offset=region_offset,
-                        dry_run=config.dry_run,
-                        jitter_ratio=config.click_jitter_ratio,
-                        move_steps_range=config.move_steps_range,
-                        move_curviness=config.move_curviness,
-                    )
-                    clicked_this_round = True
-                    time.sleep(config.click_delay)
-                    break  # คลิกทีละปุ่มต่อรอบ แล้ววนสแกนใหม่ (กันคลิกซ้อนผิดจังหวะ)
+            # 1) เช็ค override ก่อนเสมอ (ป๊อปอัพแทรกได้ทุกเมื่อ ไม่กระทบ step ปัจจุบัน)
+            if override_dict and try_click_any(frame, override_dict, config, region_offset):
+                time.sleep(config.click_delay)
+                time.sleep(config.scan_interval)
+                continue
 
-            if not clicked_this_round:
-                pass  # ไม่เจอปุ่มไหนเลยในรอบนี้ รอสแกนรอบถัดไป
+            # 2) เช็คปุ่มของ step ปัจจุบันเท่านั้น (โหลดจากโฟลเดอร์ของ step นั้น)
+            folder_name, step_imgs = step_flow[current_step] if total_steps > 0 else ("", {})
+            retry_label = "รอไปเรื่อยๆ (ไม่ข้าม)" if config.max_step_retries <= 0 else f"retry {retry_count}/{config.max_step_retries}"
+            print(f"[{time.strftime('%H:%M:%S')}] Step {current_step + 1}/{total_steps} [{folder_name}] "
+                  f"-> กำลังหา {list(step_imgs.keys())} ({retry_label})")
+
+            if try_click_any(frame, step_imgs, config, region_offset):
+                current_step = (current_step + 1) % total_steps if total_steps > 0 else 0
+                retry_count = 0
+                time.sleep(config.click_delay)
+            else:
+                retry_count += 1
+                # max_step_retries <= 0 หมายถึงรอไปเรื่อยๆ ไม่มีวันข้าม step จนกว่าจะเจอปุ่มจริง
+                if config.max_step_retries > 0 and retry_count >= config.max_step_retries:
+                    print(f"[!] หา step {current_step + 1} ไม่เจอเกิน {config.max_step_retries} รอบ ข้ามไป step ถัดไป")
+                    current_step = (current_step + 1) % total_steps if total_steps > 0 else 0
+                    retry_count = 0
 
             time.sleep(config.scan_interval)
 
