@@ -27,6 +27,18 @@ import cv2
 import numpy as np
 import pyautogui
 
+# แก้ปัญหาสแกน/คลิกพิกัดเพี้ยนเวลาสลับจอที่ scale (DPI) ไม่เท่ากัน เช่นจากจอคอมไปจอ notebook
+# ทำให้ Windows รายงานความละเอียดจอที่ "แท้จริง" แทนค่าที่ถูกปัดเศษ (virtualized) จาก DPI scaling
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
 pyautogui.MINIMUM_DURATION = 0
 pyautogui.MINIMUM_SLEEP = 0
 pyautogui.PAUSE = 0
@@ -40,6 +52,11 @@ class Config:
 
     # ความมั่นใจขั้นต่ำในการจับคู่รูป (0.0 - 1.0) ยิ่งสูงยิ่งเป๊ะ แต่พลาดง่ายถ้าธีม/ขนาดต่าง
     match_confidence: float = 0.85
+
+    # สเกลของ template ที่จะลองจับคู่ (1.0 = ขนาดเดิม) ใช้แก้ปัญหาสแกนไม่เจอตอนสลับจอ/ความละเอียด
+    # ที่ทำให้ปุ่มในเกมมีขนาดพิกเซลต่างจากตอนแคป template ไว้
+    # ตอนนี้เลือกจอผ่าน screen_profile อยู่แล้ว เลยไม่ต้องเผื่อสเกลกว้างมาก -> ช่วงแคบลงเพื่อความเร็ว
+    match_scales: tuple = (0.95, 1.0, 1.05)
 
     # หน่วงเวลาระหว่างรอบสแกนหน้าจอ (วินาที)
     scan_interval: float = 1.0
@@ -64,15 +81,30 @@ class Config:
     # ความโค้งของเส้นทางเมาส์ เทียบกับระยะทางตรง (0 = เส้นตรง, ยิ่งมากยิ่งโค้ง)
     move_curviness: float = 0.35
 
-    # รายชื่อไฟล์ template (ไม่ต้องใส่ .png) เรียงตามลำดับความสำคัญ
+    # เลือกว่าจะสแกนโดยใช้ template ชุดของจอไหน: "desktop" หรือ "laptop"
+    # เดิมสคริปต์จับคู่ template ทั้งสองชุดพร้อมกันทุกรอบ (จอคอม + notebook) ทำให้สแกนช้าเกินไป
+    # ตอนนี้เลือกโปรไฟล์ล่วงหน้าก่อนรัน สคริปต์จะจับคู่แค่ชุดที่เลือกเท่านั้น เร็วขึ้นเกือบ 2 เท่า
+    screen_profile: str = "desktop"  # "desktop" หรือ "laptop"
+
+    # ชุด template (ไม่ต้องใส่ .png) สำหรับตอนเล่นบนจอคอม เรียงตามลำดับความสำคัญ
     # ปุ่มที่อยู่ก่อนในลิสต์จะถูกคลิกก่อนถ้าเจอพร้อมกันหลายปุ่มในรอบเดียวกัน
-    priority_order: list = field(default_factory=lambda: [
+    priority_order_desktop: list = field(default_factory=lambda: [
         "confirm_reconnect",
         "open_all",
         "confirm",
         "ok",
         "play_1",
         "play_2",
+    ])
+
+    # ชุด template สำหรับตอนเล่นบนจอ notebook (แคปรูปจากจอ notebook แยกไว้ต่างหาก)
+    priority_order_laptop: list = field(default_factory=lambda: [
+        "confirm_reconnect",
+        "open_all_laptop",
+        "confirm_laptop",
+        "ok_laptop",
+        "play_1_laptop",
+        "play_2_laptop",
     ])
 
 
@@ -112,15 +144,26 @@ def screenshot_bgr(region=None) -> np.ndarray:
     return frame
 
 
-def find_best_match(frame: np.ndarray, template: np.ndarray, threshold: float):
-    """หาตำแหน่งที่ template match กับ frame ดีที่สุด คืน (x, y, w, h, score) หรือ None"""
-    result = cv2.matchTemplate(frame, template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-    if max_val >= threshold:
-        h, w = template.shape[:2]
-        x, y = max_loc
-        return (x, y, w, h, max_val)
-    return None
+def find_best_match(frame: np.ndarray, template: np.ndarray, threshold: float, scales=(1.0,)):
+    """หาตำแหน่งที่ template match กับ frame ดีที่สุด โดยลองย่อ/ขยาย template หลายสเกล
+    (กันปุ่มขนาดพิกเซลไม่ตรงกับตอนแคป template เช่นตอนสลับไปจอที่ความละเอียด/DPI ต่างกัน)
+    คืน (x, y, w, h, score) หรือ None"""
+    th, tw = template.shape[:2]
+    fh, fw = frame.shape[:2]
+    best = None
+
+    for scale in scales:
+        rw, rh = int(round(tw * scale)), int(round(th * scale))
+        if rw < 6 or rh < 6 or rw >= fw or rh >= fh:
+            continue
+        resized = cv2.resize(template, (rw, rh), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        result = cv2.matchTemplate(frame, resized, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        if max_val >= threshold and (best is None or max_val > best[4]):
+            x, y = max_loc
+            best = (x, y, rw, rh, max_val)
+
+    return best
 
 
 def bezier_point(p0, p1, p2, t):
@@ -198,13 +241,24 @@ def click_at(x: int, y: int, w: int = 0, h: int = 0, region_offset=(0, 0),
 
 def run(config: Config):
     templates = load_templates(config.templates_dir)
-    ordered_names = [n for n in config.priority_order if n in templates]
-    ordered_names += [n for n in templates if n not in ordered_names]  # เพิ่มตัวที่ไม่ได้ระบุลำดับไว้ท้ายสุด
+
+    profile = config.screen_profile.strip().lower()
+    if profile == "laptop":
+        selected_order = config.priority_order_laptop
+    else:
+        selected_order = config.priority_order_desktop
+
+    # สแกนเฉพาะ template ของโปรไฟล์ที่เลือกเท่านั้น (ไม่ผสมชุดจอคอม/notebook พร้อมกัน) เพื่อความเร็ว
+    ordered_names = [n for n in selected_order if n in templates]
+    missing = [n for n in selected_order if n not in templates]
+    if missing:
+        print(f"[!] โปรไฟล์ '{profile}' ขาด template: {missing} (ข้ามไป ไม่กระทบปุ่มอื่น)")
 
     region_offset = (config.region[0], config.region[1]) if config.region else (0, 0)
 
     print("=" * 60)
     print("Cookie Run Classic - Auto Click AFK")
+    print(f"โปรไฟล์จอ: {profile}  |  จำนวน template ที่ใช้สแกน: {len(ordered_names)} ({ordered_names})")
     print(f"โหมด: {'DRY RUN (ไม่คลิกจริง)' if config.dry_run else 'LIVE (คลิกจริง!)'}")
     print("กด Ctrl+C เพื่อหยุด")
     print("=" * 60)
@@ -219,7 +273,7 @@ def run(config: Config):
             clicked_this_round = False
 
             for name in ordered_names:
-                match = find_best_match(frame, templates[name], config.match_confidence)
+                match = find_best_match(frame, templates[name], config.match_confidence, config.match_scales)
                 if match:
                     x, y, w, h, score = match
                     center_x, center_y = x + w // 2, y + h // 2
