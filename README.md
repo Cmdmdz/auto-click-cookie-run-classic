@@ -7,7 +7,13 @@
 
 ## 1. เตรียมเครื่อง
 
-ต้องมี Python 3.9+ ติดตั้งบนเครื่อง แล้วติดตั้งไลบรารีที่ใช้:
+ต้องมี Python 3.9+ ติดตั้งบนเครื่อง แล้วติดตั้งไลบรารีที่ใช้ผ่าน `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+หรือจะติดตั้งทีละตัวเองก็ได้:
 
 ```bash
 pip install pyautogui opencv-python numpy pillow
